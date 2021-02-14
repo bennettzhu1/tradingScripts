@@ -1,0 +1,163 @@
+//Open at London Open
+//Close at New York 1PM
+extern string MarketOpen = "10:00:";
+extern string MarketClose = "20:00:";
+string MarketState = "";
+
+void OnTick()
+{
+
+    string signal = "";
+    isItOpen(MarketState);
+
+    //K is fast , D is slow
+    //Get current and past stochastics
+    double K0 = iStochastic(_Symbol, _Period, 5, 3, 3, MODE_SMA, 0, MODE_MAIN, 0);
+    double D0 = iStochastic(_Symbol, _Period, 5, 3, 3, MODE_SMA, 0, MODE_SIGNAL, 0);
+
+    double K1 = iStochastic(_Symbol, _Period, 5, 3, 3, MODE_SMA, 0, MODE_MAIN, 1);
+    double D1 = iStochastic(_Symbol, _Period, 5, 3, 3, MODE_SMA, 0, MODE_SIGNAL, 1);
+
+    double K2 = iStochastic(_Symbol, _Period, 5, 3, 3, MODE_SMA, 0, MODE_MAIN, 2);
+    double D2 = iStochastic(_Symbol, _Period, 5, 3, 3, MODE_SMA, 0, MODE_SIGNAL, 2);
+
+    double K3 = iStochastic(_Symbol, _Period, 5, 3, 3, MODE_SMA, 0, MODE_MAIN, 3);
+    double D3 = iStochastic(_Symbol, _Period, 5, 3, 3, MODE_SMA, 0, MODE_SIGNAL, 3);
+
+    //Get current and previous bollinger bands
+    double CurrLowerBB = iBands(_Symbol, _Period, 20, 2, 0, PRICE_CLOSE, MODE_LOWER, 1);
+    double CurrUpperBB = iBands(_Symbol, _Period, 20, 2, 0, PRICE_CLOSE, MODE_UPPER, 1);
+
+    double PrevLowerBB = iBands(_Symbol, _Period, 20, 2, 0, PRICE_CLOSE, MODE_LOWER, 2);
+    double PrevUpperBB = iBands(_Symbol, _Period, 20, 2, 0, PRICE_CLOSE, MODE_UPPER, 2);
+
+    double bbWidth = bbWidth(CurrLowerBB, CurrUpperBB);
+
+    //sell signal
+    //**setup candle**
+    //1. either candle open or close is above current bollinger band
+    //2. high must be above current bollinger band
+    if ((Open[2] > CurrUpperBB && Close[2] > CurrUpperBB) && (High[2] > CurrUpperBB))
+    {
+        //candlestick pattern
+        //1. setup candle body must be less than 50% of range
+        //2. confirmation candle must be bearish and 1.5x setup candle range
+        if (isIndecisionCandle(Open[2], High[2], Low[2], Close[2]))
+        {
+            if (hasConfirmation(Open[1], High[1], Low[1], Close[1], Open[2], Close[2], false))
+            {
+                //k crosses below d within last 3 candles
+                if ((K0 > 80) && (D0 > 80))
+                {
+                    if ((K1 > D1) && (K0 < D0))
+                    {
+                        signal = "sell";
+                    }
+                    if (K2 > D2 && K1 < D1)
+                    {
+                        signal = "sell";
+                    }
+                }
+            }
+        }
+    }
+    //buy signal
+    if ((Open[2] < CurrUpperBB || Close[2] < CurrUpperBB) && (Low[2] < CurrUpperBB))
+    {
+        //candlestick pattern
+        //1. setup candle body must be less than 50% of range
+        //2. confirmation candle must be bearish and 1.5x setup candle range
+        if (isIndecisionCandle(Open[2], High[2], Low[2], Close[2]))
+        {
+            if (hasConfirmation(Open[1], High[1], Low[1], Close[1], Open[2], Close[2], false))
+            {
+                //k crosses below d within last 3 candles
+                if ((K0 < 20) && (D0 < 20))
+                {
+                    if ((K1 < D1) && (K0 > D0))
+                    {
+                        signal = "buy";
+                    }
+                    if (K2 < D2 && K1 > D1)
+                    {
+                        signal = "buy";
+                    }
+                    if (K3 < D3 && K2 > D2)
+                    {
+                        signal = "buy";
+                    }
+                }
+            }
+        }
+    }
+
+    if (signal == "buy" && OrdersTotal() == 0 && MarketState == "open")
+        OrderSend(_Symbol, OP_BUY, 0.10, Ask, 3, Ask - 100 * _Point, Ask + 100 * _Point, NULL, 0, 0, Green);
+    if (signal == "sell" && OrdersTotal() == 0 && MarketState == "open")
+        OrderSend(_Symbol, OP_SELL, 0.10, Bid, 3, Bid + 100 * _Point, Bid - 100 * _Point, NULL, 0, 0, Green);
+
+    //Comment("Market is ",MarketState);
+    //Comment("bbwidth: ",bbWidth);
+}
+
+//checks whether confirmation candle is bullish for long, bearish for short,
+//must have a large body to wick ratio
+//must engulf the setup candle
+bool hasConfirmation(double open1, double high1, double low1, double close1, double open2, double close2, bool isLong)
+{
+
+    if (isLong)
+    {
+        if ((close1 > open1) && ((close1 - open1) > (1.5 * (MathAbs(open2 - close2)))))
+        {
+            //confirmation candle must have large body (60% of range)
+            if (((close1 - open1) / (high1 - low1)) > 0.75)
+                return true;
+        }
+    }
+    else
+    {
+        //confirmation candle must be bearish and have 1.2x the body of setup candle
+        if ((open1 > close1) && ((open1 - close1) > (1.5 * (MathAbs(open2 - close2)))))
+        {
+            //confirmation candle must have large body (60% of range)
+            if (((open1 - close1) / (high1 - low1)) > 0.75)
+                return true;
+        }
+    }
+    return false;
+}
+
+//determine if candle is an indecision candle
+//does not differentiate between bearish and bullish candle
+//body must be less than 25% of range
+bool isIndecisionCandle(double open, double high, double low, double close)
+{
+    if (fabs(open - close) == (high - low))
+        return false;
+
+    return (fabs(open - close) / (high - low) < 0.25);
+}
+
+//calculate and return bbWidth
+double bbWidth(double lowerBB, double upperBB)
+{
+    return ((upperBB - lowerBB) / ((upperBB + lowerBB) * 0.5));
+}
+
+//checks whether market is open or closed
+void isItOpen(string &MarketState)
+{
+    //Retrieve current time
+    string currentTime = TimeToStr(TimeLocal(), TIME_DATE | TIME_SECONDS);
+    //Find out moment when market opens
+    int indexOpen = StringFind(currentTime, (MarketOpen), 0);
+    //Find out moment when market closes
+    int indexClose = StringFind(currentTime, (MarketClose), 0);
+    //Market has opened
+    if (indexOpen > 0)
+        MarketState = "open";
+    //Market has closed
+    if (indexClose > 0)
+        MarketState = "closed";
+}
